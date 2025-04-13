@@ -1,0 +1,8 @@
+---
+- name: Check and configure prerequisites for Kubernetes
+  hosts: all
+  become: true
+  roles:
+    - common
+  vars:
+    ansible_python_interpreter: /usr/bin/python3 

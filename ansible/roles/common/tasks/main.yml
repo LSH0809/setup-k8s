@@ -1,0 +1,90 @@
+---
+# 시스템 요구사항 확인
+- name: Check Ubuntu version
+  command: lsb_release -rs
+  register: ubuntu_version
+  changed_when: false
+  failed_when: ubuntu_version.stdout|float < 20.04
+
+- name: Check Python version
+  command: python3 --version
+  register: python_version
+  changed_when: false
+  failed_when: python_version.stdout.split()[1].split('.')[0]|int < 3 or (python_version.stdout.split()[1].split('.')[0]|int == 3 and python_version.stdout.split()[1].split('.')[1]|int < 8)
+
+- name: Check CPU cores
+  command: nproc
+  register: cpu_cores
+  changed_when: false
+  failed_when: cpu_cores.stdout|int < 4
+
+- name: Check memory
+  command: free -m
+  register: memory_info
+  changed_when: false
+  failed_when: memory_info.stdout_lines[1].split()[1]|int < 8000
+
+- name: Check disk space
+  command: df -h /
+  register: disk_space
+  changed_when: false
+  failed_when: disk_space.stdout_lines[1].split()[3]|replace('G','')|float < 50
+
+# 필요한 패키지 설치
+- name: Install required packages
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg2
+      - software-properties-common
+      - python3-pip
+    state: present
+    update_cache: yes
+
+# 시스템 설정
+- name: Disable swap
+  command: swapoff -a
+  changed_when: false
+
+- name: Remove swap from fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - overlay
+    - br_netfilter
+
+- name: Configure kernel parameters
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: yes
+    reload: yes
+  with_items:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+
+# 방화벽 설정 (선택적)
+- name: Allow required ports
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  with_items:
+    - 6443  # Kubernetes API server
+    - 2379  # etcd server client API
+    - 2380  # etcd server client API
+    - 10250 # Kubelet API
+    - 10251 # kube-scheduler
+    - 10252 # kube-controller-manager
+  when: ansible_os_family == "Debian" 
