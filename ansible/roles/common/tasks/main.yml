@@ -1,36 +1,43 @@
 ---
-# 시스템 요구사항 확인
 - name: Check Ubuntu version
   command: lsb_release -rs
   register: ubuntu_version
   changed_when: false
-  failed_when: ubuntu_version.stdout|float < 20.04
+  failed_when: ubuntu_version.stdout|float < min_ubuntu_version|float
 
 - name: Check Python version
   command: python3 --version
   register: python_version
   changed_when: false
-  failed_when: python_version.stdout.split()[1].split('.')[0]|int < 3 or (python_version.stdout.split()[1].split('.')[0]|int == 3 and python_version.stdout.split()[1].split('.')[1]|int < 8)
+  failed_when: >
+    python_version.stdout.split()[1].split('.')[0]|int < min_python_version.split('.')[0]|int or
+    (python_version.stdout.split()[1].split('.')[0]|int == min_python_version.split('.')[0]|int and
+     python_version.stdout.split()[1].split('.')[1]|int < min_python_version.split('.')[1]|int)
 
 - name: Check CPU cores
   command: nproc
   register: cpu_cores
   changed_when: false
-  failed_when: cpu_cores.stdout|int < 4
+  failed_when: cpu_cores.stdout|int < min_cpu_cores
 
 - name: Check memory
   command: free -m
   register: memory_info
   changed_when: false
-  failed_when: memory_info.stdout_lines[1].split()[1]|int < 8000
+  failed_when: memory_info.stdout_lines[1].split()[1]|int < min_memory_gb * 1000
 
 - name: Check disk space
   command: df -h /
   register: disk_space
   changed_when: false
-  failed_when: disk_space.stdout_lines[1].split()[3]|replace('G','')|float < 50
+  failed_when: disk_space.stdout_lines[1].split()[3]|replace('G','')|float < min_disk_gb
 
+# =============================================================================
 # 필요한 패키지 설치
+# =============================================================================
+# Kubernetes 설치 및 운영에 필요한 기본 패키지를 설치합니다.
+# =============================================================================
+
 - name: Install required packages
   apt:
     name:
@@ -41,9 +48,17 @@
       - software-properties-common
       - python3-pip
     state: present
-    update_cache: yes
+    update_cache: true
 
+# =============================================================================
 # 시스템 설정
+# =============================================================================
+# Kubernetes 요구사항에 맞게 시스템을 설정합니다.
+# - swap 비활성화 (Kubernetes 성능 향상)
+# - 필요한 커널 모듈 로드 (overlay, br_netfilter)
+# - 네트워크 관련 커널 파라미터 설정
+# =============================================================================
+
 - name: Disable swap
   command: swapoff -a
   changed_when: false
@@ -67,24 +82,23 @@
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
-    sysctl_set: yes
-    reload: yes
+    sysctl_set: true
+    reload: true
   with_items:
-    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
-    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
-    - { name: 'net.ipv4.ip_forward', value: '1' }
+    - {name: 'net.bridge.bridge-nf-call-iptables', value: '1'}
+    - {name: 'net.bridge.bridge-nf-call-ip6tables', value: '1'}
+    - {name: 'net.ipv4.ip_forward', value: '1'}
 
-# 방화벽 설정 (선택적)
-- name: Allow required ports
+# =============================================================================
+# 방화벽 설정
+# =============================================================================
+# Kubernetes 클러스터 통신에 필요한 포트를 개방합니다.
+# =============================================================================
+
+- name: Allow required ports for Kubernetes
   ufw:
     rule: allow
     port: "{{ item }}"
     proto: tcp
-  with_items:
-    - 6443  # Kubernetes API server
-    - 2379  # etcd server client API
-    - 2380  # etcd server client API
-    - 10250 # Kubelet API
-    - 10251 # kube-scheduler
-    - 10252 # kube-controller-manager
+  with_items: "{{ kubernetes_ports }}"
   when: ansible_os_family == "Debian" 

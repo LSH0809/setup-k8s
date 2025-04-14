@@ -1,0 +1,19 @@
+---
+# 공통 변수 정의
+ansible_python_interpreter: /usr/bin/python3
+
+# 시스템 요구사항
+min_ubuntu_version: "20.04"
+min_python_version: "3.8"
+min_cpu_cores: 4
+min_memory_gb: 8
+min_disk_gb: 50
+
+# Kubernetes 포트
+kubernetes_ports:
+  - 6443  # Kubernetes API server
+  - 2379  # etcd server client API
+  - 2380  # etcd server client API
+  - 10250 # Kubelet API
+  - 10251 # kube-scheduler
+  - 10252 # kube-controller-manager 
